@@ -98,9 +98,9 @@ public class AzureSlaProvider : ISlaProvider
         // ── 1. Try the published SLA document ───────────────────────────
         var config = resource.Annotations.OfType<AzureConfigAnnotation>().FirstOrDefault();
         if (config is not null &&
-            _slaDocument.LookupSla(config.ServiceName, config.ArmSkuName) is { } docSla)
+            _slaDocument.LookupSla(config.ServiceName, config.ArmSkuName) is { } tier)
         {
-            return docSla;
+            return tier.UptimeSla;
         }
 
         // ── 2. Fall back to manually attached SLA annotation ────────────

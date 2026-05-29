@@ -29,33 +29,33 @@ public sealed class SlaDocumentParserTests
     [Fact]
     internal void Parse_ContainerInstances_ReturnsCorrectSla()
     {
-        var sla = _document.LookupSla("Azure Container Instances", null);
-        Assert.NotNull(sla);
-        Assert.Equal(0.999, sla!.Value, precision: 5);
+        var tier = _document.LookupSla("Azure Container Instances", null);
+        Assert.NotNull(tier);
+        Assert.Equal(0.999, tier.UptimeSla, precision: 5);
     }
 
     [Fact]
     internal void Parse_ContainerApps_ReturnsCorrectSla()
     {
-        var sla = _document.LookupSla("Azure Container Apps", null);
-        Assert.NotNull(sla);
-        Assert.Equal(0.9995, sla!.Value, precision: 5);
+        var tier = _document.LookupSla("Azure Container Apps", null);
+        Assert.NotNull(tier);
+        Assert.Equal(0.9995, tier.UptimeSla, precision: 5);
     }
 
     [Fact]
     internal void Parse_Cdn_ReturnsCorrectSla()
     {
-        var sla = _document.LookupSla("Content Delivery Network (CDN)", null);
-        Assert.NotNull(sla);
-        Assert.Equal(0.999, sla!.Value, precision: 5);
+        var tier = _document.LookupSla("Content Delivery Network (CDN)", null);
+        Assert.NotNull(tier);
+        Assert.Equal(0.999, tier.UptimeSla, precision: 5);
     }
 
     [Fact]
     internal void Parse_CosmosDb_ReturnsCorrectSla()
     {
-        var sla = _document.LookupSla("Azure Cosmos DB", null);
-        Assert.NotNull(sla);
-        Assert.Equal(0.9999, sla!.Value, precision: 5);
+        var tier = _document.LookupSla("Azure Cosmos DB", null);
+        Assert.NotNull(tier);
+        Assert.Equal(0.9999, tier.UptimeSla, precision: 5);
     }
 
     [Theory]
@@ -65,24 +65,24 @@ public sealed class SlaDocumentParserTests
     [InlineData("Azure Cosmos DB", "Default", 0.9999)]
     internal void Parse_SpecificSkuLookup_ReturnsCorrectSla(string serviceName, string skuName, double expectedSla)
     {
-        var sla = _document.LookupSla(serviceName, skuName);
-        Assert.NotNull(sla);
-        Assert.Equal(expectedSla, sla!.Value, precision: 5);
+        var tier = _document.LookupSla(serviceName, skuName);
+        Assert.NotNull(tier);
+        Assert.Equal(expectedSla, tier.UptimeSla, precision: 5);
     }
 
     [Fact]
     internal void Parse_LookupSla_UnknownService_ReturnsNull()
     {
-        var sla = _document.LookupSla("NonExistent Service ZZZ", null);
-        Assert.Null(sla);
+        var tier = _document.LookupSla("NonExistent Service ZZZ", null);
+        Assert.Null(tier);
     }
 
     [Fact]
     internal void Parse_MissingFile_ReturnsEmptyDocument()
     {
         var doc = SlaDocumentParser.Parse("/nonexistent/path/sla.docx");
-        var sla = doc.LookupSla("Azure Container Instances", null);
-        Assert.Null(sla);
+        var tier = doc.LookupSla("Azure Container Instances", null);
+        Assert.Null(tier);
     }
 
     [Fact]
@@ -90,26 +90,46 @@ public sealed class SlaDocumentParserTests
     {
         var doc = SlaDocumentParser.Parse("/tmp/does_not_exist_12345.docx");
         Assert.NotNull(doc);
-        var sla = doc.LookupSla("Anything", null);
-        Assert.Null(sla);
+        var tier = doc.LookupSla("Anything", null);
+        Assert.Null(tier);
+    }
+
+    [Fact]
+    internal void Parse_ContainerInstances_HasServiceCredits()
+    {
+        var tier = _document.LookupSla("Azure Container Instances", null);
+        Assert.NotNull(tier);
+        Assert.NotEmpty(tier.ServiceCredits);
+        // Service credits should be in descending threshold order (99.9%, 99%, ...)
+        Assert.True(tier.ServiceCredits[0].UptimeThreshold >= tier.ServiceCredits[^1].UptimeThreshold,
+            "Service credits should be in descending uptime threshold order");
+    }
+
+    [Fact]
+    internal void Parse_ServiceCredits_ContainValidValues()
+    {
+        var tier = _document.LookupSla("Azure Container Instances", null);
+        Assert.NotNull(tier);
+        foreach (var credit in tier.ServiceCredits)
+        {
+            Assert.True(credit.UptimeThreshold is >= 0.0 and <= 1.0,
+                $"Invalid uptime threshold: {credit.UptimeThreshold}");
+            Assert.True(credit.ServiceCredit is > 0.0 and <= 1.0,
+                $"Invalid service credit: {credit.ServiceCredit}");
+        }
     }
 
     private static string ResolveDocxPath()
     {
-        if (File.Exists(DocxPath))
-            return DocxPath;
-
+        if (File.Exists(DocxPath)) return DocxPath;
         var dir = AppContext.BaseDirectory;
         for (int i = 0; i < 10; i++)
         {
             var candidate = Path.Combine(dir, "src", "Aspire.SLA.Azure", "asset",
                 "OnlineSvcsConsolidatedSLA(WW)(English)(April2026)CR.docx");
-            if (File.Exists(candidate))
-                return candidate;
-
+            if (File.Exists(candidate)) return candidate;
             var parent = Path.GetDirectoryName(dir);
-            if (parent is null || parent == dir)
-                break;
+            if (parent is null || parent == dir) break;
             dir = parent;
         }
         return DocxPath;

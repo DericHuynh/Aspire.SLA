@@ -153,7 +153,7 @@ public sealed class SlaDocumentParser
             return AzureSlaDocument.Empty;
         }
 
-        var serviceSlas = new Dictionary<string, Dictionary<string, double>>(StringComparer.OrdinalIgnoreCase);
+        var serviceSlas = new Dictionary<string, Dictionary<string, SlaTier>>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
@@ -263,14 +263,37 @@ public sealed class SlaDocumentParser
                             tierName = ExtractTierFromContext(lastContextParagraph);
                         }
 
+                        // Extract service credits from the credit column
+                        var credits = new List<SlaCreditTier>();
+                        if (creditCol is not null)
+                        {
+                            for (int rowIdx = 1; rowIdx < rows.Count; rowIdx++)
+                            {
+                                var dataCells = rows[rowIdx].Elements<TableCell>().ToList();
+                                if (creditCol.Value >= dataCells.Count) continue;
+
+                                var creditCellText = GetCellText(dataCells[creditCol.Value]);
+                                var creditValue = ExtractCreditPercentage(creditCellText);
+
+                                // Get the SLA threshold from the same row
+                                var slaCellText = colIdx < dataCells.Count ? GetCellText(dataCells[colIdx]) : "";
+                                var threshold = ExtractSlaPercentage(slaCellText);
+
+                                if (creditValue.HasValue && threshold.HasValue)
+                                    credits.Add(new SlaCreditTier(threshold.Value, creditValue.Value));
+                            }
+                        }
+
+                        var tier = new SlaTier(slaValue.Value, credits.AsReadOnly());
+
                         if (!serviceSlas.TryGetValue(currentService, out var tiers))
                         {
-                            tiers = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+                            tiers = new Dictionary<string, SlaTier>(StringComparer.OrdinalIgnoreCase);
                             serviceSlas[currentService] = tiers;
                         }
 
                         // Prefer the first entry; multi-tier tables may have same service
-                        tiers.TryAdd(tierName, slaValue.Value);
+                        tiers.TryAdd(tierName, tier);
                     }
                 }
             }
@@ -291,7 +314,7 @@ public sealed class SlaDocumentParser
         // Freeze the inner dictionaries
         var frozen = serviceSlas.ToFrozenDictionary(
             kvp => kvp.Key,
-            kvp => (IReadOnlyDictionary<string, double>)kvp.Value
+            kvp => (IReadOnlyDictionary<string, SlaTier>)kvp.Value
                 .ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
             StringComparer.OrdinalIgnoreCase);
 
@@ -458,7 +481,16 @@ public sealed class SlaDocumentParser
     /// </summary>
     private static bool IsCreditColumnHeader(string header)
     {
-        return header.Contains("Credit", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(header))
+            return false;
+
+        return
+            header.Contains("Credit", StringComparison.OrdinalIgnoreCase) ||
+            header.Contains("Service Credit", StringComparison.OrdinalIgnoreCase) ||
+            header.Contains("Monthly Uptime", StringComparison.OrdinalIgnoreCase) &&
+                header.Contains("Credit", StringComparison.OrdinalIgnoreCase) ||
+            (header.Contains("Credit", StringComparison.OrdinalIgnoreCase) &&
+             header.Contains("Percentage", StringComparison.OrdinalIgnoreCase));
     }
 
     // ------------------------------------------------------------------
@@ -503,6 +535,27 @@ public sealed class SlaDocumentParser
             return percent / 100.0;
         }
 
+        return null;
+    }
+
+    /// <summary>
+    /// Attempts to extract a service-credit percentage from cell text.
+    /// Service credits are typically 5%, 10%, 25%, 50%, or 100%.
+    /// Returns the credit as a decimal fraction (e.g., 0.25 = 25%),
+    /// or <c>null</c> if no valid credit percentage is found.
+    /// </summary>
+    private static double? ExtractCreditPercentage(string text)
+    {
+        foreach (Match m in SlaPercentRegex.Matches(text))
+        {
+            if (!m.Success) continue;
+            var raw = m.Groups["percent"].Value;
+            if (!double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var percent))
+                continue;
+            // Service credits are typically 5%, 10%, 25%, 50%, 100%
+            if (percent is > 0.0 and <= 100.0 && percent < 90.0)
+                return percent / 100.0;
+        }
         return null;
     }
 
@@ -611,29 +664,30 @@ public sealed class AzureSlaDocument
     /// A singleton empty document with no SLA entries.
     /// </summary>
     public static readonly AzureSlaDocument Empty = new(
-        new Dictionary<string, IReadOnlyDictionary<string, double>>());
+        new Dictionary<string, IReadOnlyDictionary<string, SlaTier>>());
 
     /// <summary>
     /// Initializes a new instance with the given SLA mappings.
     /// </summary>
     /// <param name="serviceSlas">
     /// A dictionary where the outer key is the service name and the inner
-    /// key is the tier/SKU name, with the value being the SLA as a decimal
-    /// fraction (e.g., 0.999 for 99.9%).
+    /// key is the tier/SKU name, with the value being the SLA tier containing
+    /// uptime and service-credit information.
     /// </param>
-    public AzureSlaDocument(IReadOnlyDictionary<string, IReadOnlyDictionary<string, double>> serviceSlas)
+    public AzureSlaDocument(IReadOnlyDictionary<string, IReadOnlyDictionary<string, SlaTier>> serviceSlas)
     {
         ServiceSlas = serviceSlas ?? throw new ArgumentNullException(nameof(serviceSlas));
     }
 
     /// <summary>
     /// Nested SLA map: outer key = service name,
-    /// inner key = tier/SKU name, value = SLA as a decimal (e.g., 0.999).
+    /// inner key = tier/SKU name, value = <see cref="SlaTier"/> with uptime
+    /// and service-credit details.
     /// </summary>
-    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, double>> ServiceSlas { get; }
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, SlaTier>> ServiceSlas { get; }
 
     /// <summary>
-    /// Looks up the SLA for a given service and optional tier/SKU.
+    /// Looks up the SLA tier for a given service and optional tier/SKU.
     /// Returns <c>null</c> when no match is found.
     /// </summary>
     /// <param name="serviceName">The Azure service name.</param>
@@ -641,25 +695,39 @@ public sealed class AzureSlaDocument
     /// The tier or SKU name. Pass <c>"Default"</c> or <c>null</c> to match
     /// the fallback tier.
     /// </param>
-    /// <returns>The SLA as a decimal fraction, or <c>null</c>.</returns>
-    public double? LookupSla(string serviceName, string? skuOrTier)
+    /// <returns>The <see cref="SlaTier"/> for the service, or <c>null</c>.</returns>
+    public SlaTier? LookupSla(string serviceName, string? skuOrTier)
     {
         if (string.IsNullOrWhiteSpace(serviceName))
             return null;
 
-        if (!ServiceSlas.TryGetValue(serviceName, out var skus))
+        if (!ServiceSlas.TryGetValue(serviceName, out var skus) || skus.Count == 0)
             return null;
 
         // Null or empty tier → return the first available SLA
         if (string.IsNullOrWhiteSpace(skuOrTier))
-            return skus.Count > 0 ? skus.First().Value : null;
+            return skus.First().Value;
 
-        var key = skuOrTier;
-
-        if (skus.TryGetValue(key, out var sla))
-            return sla;
+        if (skus.TryGetValue(skuOrTier, out var tier))
+            return tier;
 
         // Specific tier not found — fall back to first available SLA
         return skus.First().Value;
     }
 }
+
+/// <summary>
+/// A service credit tier: an uptime threshold below which a specific
+/// service credit percentage applies.
+/// </summary>
+/// <param name="UptimeThreshold">The uptime percentage threshold (e.g., 0.99 = 99%).</param>
+/// <param name="ServiceCredit">The service credit as a fraction (e.g., 0.25 = 25%).</param>
+public sealed record SlaCreditTier(double UptimeThreshold, double ServiceCredit);
+
+/// <summary>
+/// Represents the SLA guarantee and service credit tiers for a single
+/// service tier / deployment configuration.
+/// </summary>
+/// <param name="UptimeSla">The guaranteed uptime SLA as a fraction (e.g., 0.999 = 99.9%).</param>
+/// <param name="ServiceCredits">The service credit tiers, from highest threshold to lowest.</param>
+public sealed record SlaTier(double UptimeSla, IReadOnlyList<SlaCreditTier> ServiceCredits);
