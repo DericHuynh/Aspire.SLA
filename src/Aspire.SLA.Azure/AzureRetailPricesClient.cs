@@ -1,6 +1,12 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Aspire.SLA.Azure;
 
@@ -58,6 +64,7 @@ public sealed class AzureRetailPricesClient : IDisposable
     /// across every page of results. Returns an empty list when the API is
     /// unavailable or returns no items.
     /// </returns>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     public async Task<IReadOnlyList<RetailPriceItem>> QueryPricesAsync(
         string filter,
         CancellationToken cancellationToken = default)
@@ -72,7 +79,7 @@ public sealed class AzureRetailPricesClient : IDisposable
         {
             try
             {
-                var response = await _httpClient.GetAsync(nextPageLink, cancellationToken);
+                var response = await _httpClient.GetAsync(new Uri(nextPageLink), cancellationToken).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
                     Console.WriteLine(
@@ -81,7 +88,7 @@ public sealed class AzureRetailPricesClient : IDisposable
                     break;
                 }
 
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 var page = JsonSerializer.Deserialize<RetailPricesResponse>(content, JsonOptions);
 
                 if (page?.Items is { Count: > 0 })
@@ -93,10 +100,16 @@ public sealed class AzureRetailPricesClient : IDisposable
             {
                 break;
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
                 Console.WriteLine(
                     $"[SLA WARNING] Failed to query Azure Retail Prices API: {ex.Message}");
+                break;
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine(
+                    $"[SLA WARNING] Failed to deserialize Azure Retail Prices API response: {ex.Message}");
                 break;
             }
         }
@@ -150,7 +163,7 @@ public sealed class AzureRetailPricesClient : IDisposable
     /// </summary>
     private static string EscapeODataString(string value)
     {
-        return value.Replace("'", "''");
+        return value.Replace("'", "''", StringComparison.Ordinal);
     }
 }
 
@@ -173,7 +186,7 @@ public sealed class RetailPricesResponse
 
     /// <summary>The array of retail price items in the current page.</summary>
     [JsonPropertyName("Items")]
-    public List<RetailPriceItem> Items { get; set; } = [];
+    public Collection<RetailPriceItem> Items { get; } = [];
 
     /// <summary>
     /// Absolute URL for the next page of results, or <c>null</c> when

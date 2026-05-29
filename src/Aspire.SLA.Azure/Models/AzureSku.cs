@@ -5,8 +5,12 @@ namespace Aspire.SLA.Azure.Models;
 /// </summary>
 public enum AzureSku
 {
+    /// <summary>Basic tier.</summary>
     Basic,
+    /// <summary>Standard tier.</summary>
     Standard,
+    /// <summary>Premium tier.</summary>
     Premium,
+    /// <summary>Enterprise tier.</summary>
     Enterprise
 }

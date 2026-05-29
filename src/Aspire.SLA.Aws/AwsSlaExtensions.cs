@@ -21,6 +21,8 @@ public static class AwsSlaExtensions
         int regionsCount = 1)
         where T : IResource
     {
+        ArgumentNullException.ThrowIfNull(builder);
+
         builder.WithAnnotation(new AwsConfigAnnotation(
             serviceName, instanceType, replicaCount, regionsCount));
         return builder;

@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.SLA.Models;
@@ -17,13 +18,21 @@ public class SlaInfrastructureResolver : InfrastructureResolver
 {
     private readonly IResourceCollection _aspireResources;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SlaInfrastructureResolver"/>.
+    /// </summary>
+    /// <param name="aspireResources">The collection of .NET Aspire resources to annotate with resolved SLAs.</param>
     public SlaInfrastructureResolver(IResourceCollection aspireResources)
     {
         _aspireResources = aspireResources;
     }
 
+    /// <inheritdoc />
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     public override void ResolveProperties(ProvisionableConstruct construct, ProvisioningBuildOptions options)
     {
+        ArgumentNullException.ThrowIfNull(construct);
+
         // Let the base resolver populate default properties and custom configurations first
         base.ResolveProperties(construct, options);
 

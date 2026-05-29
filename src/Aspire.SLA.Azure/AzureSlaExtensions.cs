@@ -1,3 +1,4 @@
+using System;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.SLA.Azure.Models;
 
@@ -24,6 +25,8 @@ public static class AzureSlaExtensions
         bool activeGeoReplication = false)
         where T : IResource
     {
+        ArgumentNullException.ThrowIfNull(builder);
+
         builder.WithAnnotation(new AzureConfigAnnotation(
             sku, topology, serviceName, armSkuName,
             replicaCount, regionsCount, activeGeoReplication));

@@ -14,8 +14,8 @@ var app = builder.Build();
 // Build-time SLA validation entry point
 if (args.Contains("--validate-sla"))
 {
-    await SlaGraphValidator.RunValidationAsync(app, region: "eastus");
+    await SlaGraphValidator.RunValidationAsync(app, region: "eastus").ConfigureAwait(false);
     Environment.Exit(0);
 }
 
-app.Run();
+await app.RunAsync().ConfigureAwait(false);

@@ -13,7 +13,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Aspire.SLA\Aspire.SLA.csproj" />
-      <PackageReference Include="Aspire.Hosting" Version="13.3.5" />
+      <PackageReference Include="Aspire.Hosting" />
     </ItemGroup>
 
 </Project>

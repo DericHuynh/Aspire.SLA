@@ -1,5 +1,11 @@
+using System;
 using System.Collections.Frozen;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 
@@ -111,7 +117,7 @@ public sealed class SlaDocumentParser
     /// structured <see cref="AzureSlaDocument"/> containing all extracted
     /// SLA mappings.
     /// </summary>
-    public Task<AzureSlaDocument> ParseAsync(
+    public static Task<AzureSlaDocument> ParseAsync(
         string docxPath,
         CancellationToken cancellationToken = default)
     {
@@ -124,7 +130,7 @@ public sealed class SlaDocumentParser
     /// <summary>
     /// Synchronously parses the DOCX file.
     /// </summary>
-    public AzureSlaDocument Parse(string docxPath)
+    public static AzureSlaDocument Parse(string docxPath)
     {
         if (string.IsNullOrWhiteSpace(docxPath))
             throw new ArgumentException("A non-empty DOCX path is required.", nameof(docxPath));
@@ -136,6 +142,7 @@ public sealed class SlaDocumentParser
     //  Internal parsing
     // ------------------------------------------------------------------
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     private static AzureSlaDocument ParseInternal(string docxPath)
     {
         if (!File.Exists(docxPath))
@@ -151,12 +158,15 @@ public sealed class SlaDocumentParser
         try
         {
             using var document = WordprocessingDocument.Open(docxPath, false);
-            var body = document.MainDocumentPart?.Document.Body;
-            if (body is null)
+            var mainPart = document.MainDocumentPart;
+            if (mainPart?.Document?.Body is not { } body)
             {
                 Console.WriteLine("[SLA WARNING] SLA DOCX document body is empty.");
                 return AzureSlaDocument.Empty;
             }
+
+            // Resolve style definitions for heading detection by style name
+            var styleNames = BuildStyleNameLookup(mainPart.StyleDefinitionsPart);
 
             // Phase 1 & 2: walk all body children in document order.
             string? currentService = null;
@@ -171,8 +181,11 @@ public sealed class SlaDocumentParser
                     if (string.IsNullOrWhiteSpace(text))
                         continue;
 
-                    // Detect service heading by style OR by Azure keyword match
-                    if (IsServiceHeading(style, text))
+                    // Resolve style name for richer heading detection
+                    var styleName = style is not null && styleNames.TryGetValue(style, out var sn) ? sn : null;
+
+                    // Detect service heading by style name/ID OR by Azure keyword match
+                    if (IsServiceHeading(style, styleName, text))
                     {
                         currentService = NormalizeServiceName(text);
                         lastContextParagraph = null;
@@ -262,7 +275,13 @@ public sealed class SlaDocumentParser
                 }
             }
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            Console.WriteLine(
+                $"[SLA WARNING] Failed to read SLA DOCX file: {ex.Message}");
+            return AzureSlaDocument.Empty;
+        }
+        catch (OpenXmlPackageException ex)
         {
             Console.WriteLine(
                 $"[SLA WARNING] Failed to parse SLA DOCX file: {ex.Message}");
@@ -308,25 +327,54 @@ public sealed class SlaDocumentParser
     }
 
     /// <summary>
-    /// Determines whether a paragraph represents a service-level heading.
-    /// Matches either by a known heading style OR by the presence of a
-    /// known Azure service name keyword (only when the paragraph isn't
-    /// already classified as body text).
+    /// Builds a lookup from style ID to human-readable style name by reading
+    /// the document's StyleDefinitionsPart via the Open XML SDK.
     /// </summary>
-    private static bool IsServiceHeading(string? style, string text)
+    private static Dictionary<string, string> BuildStyleNameLookup(StyleDefinitionsPart? stylesPart)
     {
-        // Style-based detection
-        if (style is not null && HeadingStyles.Contains(style))
+        var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (stylesPart?.Styles is not { } styles)
+            return lookup;
+
+        foreach (var style in styles.Elements<Style>())
+        {
+            var id = style.StyleId?.Value;
+            var name = style.StyleName?.Val?.Value;
+            if (id is not null)
+                lookup[id] = name ?? id;
+        }
+
+        return lookup;
+    }
+
+    /// <summary>
+    /// Determines whether a paragraph represents a service-level heading.
+    /// Matches by resolved style name (from the document's StyleDefinitionsPart),
+    /// raw style ID, or by the presence of a known Azure service name keyword.
+    /// </summary>
+    private static bool IsServiceHeading(string? styleId, string? styleName, string text)
+    {
+        // Style-based detection — prefer the resolved style name from the document
+        if (styleName is not null &&
+            (styleName.Contains("Heading", StringComparison.OrdinalIgnoreCase) ||
+             styleName.Contains("TOC", StringComparison.OrdinalIgnoreCase)))
+        {
+            return styleName.Contains("Heading", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Fall back to raw style ID detection
+        if (styleId is not null && HeadingStyles.Contains(styleId))
             return true;
 
         // Keyword-based fallback – only for paragraphs that don't have a
         // known body/list style, to avoid matching definition sentences that
         // happen to mention an Azure service name.
-        if (style is not null &&
-            (style.Contains("Body", StringComparison.OrdinalIgnoreCase) ||
-             style.Contains("List", StringComparison.OrdinalIgnoreCase) ||
-             style.Contains("Normal", StringComparison.OrdinalIgnoreCase) ||
-             style.Contains("Clause", StringComparison.OrdinalIgnoreCase)))
+        if (styleId is not null &&
+            (styleId.Contains("Body", StringComparison.OrdinalIgnoreCase) ||
+             styleId.Contains("List", StringComparison.OrdinalIgnoreCase) ||
+             styleId.Contains("Normal", StringComparison.OrdinalIgnoreCase) ||
+             styleId.Contains("Clause", StringComparison.OrdinalIgnoreCase)))
             return false;
 
         if (text.Length < 120 &&
@@ -449,7 +497,7 @@ public sealed class SlaDocumentParser
             var prefix = text[..Math.Min(m.Index, text.Length)].TrimEnd();
             if (prefix.EndsWith("below", StringComparison.OrdinalIgnoreCase) ||
                 prefix.EndsWith("above", StringComparison.OrdinalIgnoreCase) ||
-                prefix.EndsWith(">"))
+                prefix.EndsWith('>'))
                 continue;
 
             return percent / 100.0;

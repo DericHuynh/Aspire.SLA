@@ -19,7 +19,7 @@ public static class SlaGraphValidator
     /// <see cref="ISlaProvider"/> instances for cloud coverage before calling
     /// <see cref="RunValidationAsync"/>.
     /// </summary>
-    public static readonly List<ISlaProvider> Providers = [];
+    public static readonly IList<ISlaProvider> Providers = [];
 
     /// <summary>
     /// Registers an <see cref="ISlaProvider"/> that will be queried during SLA
@@ -36,8 +36,10 @@ public static class SlaGraphValidator
     /// </summary>
     /// <param name="app">The built <see cref="DistributedApplication"/>.</param>
     /// <param name="region">Cloud region identifier for pricing queries.</param>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303:Do not pass literals as localized parameters", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     public static async Task RunValidationAsync(DistributedApplication app, string region)
     {
+        ArgumentNullException.ThrowIfNull(app);
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
         var visited = new Dictionary<string, CompositeSlaResult>();
         double totalCost = 0.0;
@@ -50,7 +52,7 @@ public static class SlaGraphValidator
             var provider = Providers.FirstOrDefault(p => p.CanHandle(resource));
             if (provider is not null)
             {
-                totalCost += await provider.GetMonthlyCostAsync(resource, region);
+                totalCost += await provider.GetMonthlyCostAsync(resource, region).ConfigureAwait(false);
             }
         }
 
@@ -90,6 +92,7 @@ public static class SlaGraphValidator
     /// Recursively resolves the composite SLA for a resource by combining its base SLA
     /// with the SLAs of its critical (series) and redundant (parallel) dependencies.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     private static CompositeSlaResult ResolveResourceSla(
         IResource resource,
         Dictionary<string, CompositeSlaResult> visited)

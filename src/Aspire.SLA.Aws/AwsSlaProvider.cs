@@ -12,8 +12,12 @@ namespace Aspire.SLA.Aws;
 /// </summary>
 public class AwsSlaProvider : ISlaProvider
 {
+    /// <inheritdoc />
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     public bool CanHandle(IResource resource)
     {
+        ArgumentNullException.ThrowIfNull(resource);
+
         // Check type hierarchy for AWS-specific interfaces/types
         var typeName = resource.GetType().FullName ?? resource.GetType().Name;
         if (typeName.Contains("Aws", StringComparison.OrdinalIgnoreCase))
@@ -26,8 +30,12 @@ public class AwsSlaProvider : ISlaProvider
         return false;
     }
 
+    /// <inheritdoc />
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     public double GetBaseSla(IResource resource)
     {
+        ArgumentNullException.ThrowIfNull(resource);
+
         // Check for a manually attached SLA annotation
         var manual = resource.Annotations.OfType<SlaAnnotation>().FirstOrDefault();
         if (manual is not null)
@@ -41,8 +49,11 @@ public class AwsSlaProvider : ISlaProvider
         return 0.0;
     }
 
+    /// <inheritdoc />
     public int GetReplicaCount(IResource resource)
     {
+        ArgumentNullException.ThrowIfNull(resource);
+
         var config = resource.Annotations
             .OfType<AwsConfigAnnotation>()
             .FirstOrDefault();
@@ -50,8 +61,12 @@ public class AwsSlaProvider : ISlaProvider
         return config?.ReplicaCount ?? 1;
     }
 
+    /// <inheritdoc />
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     public Task<double> GetMonthlyCostAsync(IResource resource, string region)
     {
+        ArgumentNullException.ThrowIfNull(resource);
+
         // Stub: AWS Pricing API integration not yet implemented
         Console.WriteLine(
             $"[SLA INFO] AWS cost lookup not yet implemented for '{resource.Name}' — returning $0.00.");

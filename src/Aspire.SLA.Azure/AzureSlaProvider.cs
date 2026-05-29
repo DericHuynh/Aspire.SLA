@@ -1,3 +1,8 @@
+using System;
+using System.Linq;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.SLA.Azure.Models;
 using Aspire.SLA.Models;
@@ -58,13 +63,13 @@ public class AzureSlaProvider : ISlaProvider
     /// <param name="cancellationToken">A cancellation token.</param>
     public async Task LoadSlaDocumentAsync(string docxPath, CancellationToken cancellationToken = default)
     {
-        var parser = new SlaDocumentParser();
-        _slaDocument = await parser.ParseAsync(docxPath, cancellationToken);
+        _slaDocument = await SlaDocumentParser.ParseAsync(docxPath, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public bool CanHandle(IResource resource)
     {
+        ArgumentNullException.ThrowIfNull(resource);
         // Check type hierarchy for Azure-specific interfaces/types
         var typeName = resource.GetType().FullName ?? resource.GetType().Name;
         if (typeName.Contains("Azure", StringComparison.OrdinalIgnoreCase))
@@ -86,8 +91,10 @@ public class AzureSlaProvider : ISlaProvider
     ///   <item>Graceful degradation to 0% SLA</item>
     /// </list>
     /// </remarks>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     public double GetBaseSla(IResource resource)
     {
+        ArgumentNullException.ThrowIfNull(resource);
         // ── 1. Try the published SLA document ───────────────────────────
         var config = resource.Annotations.OfType<AzureConfigAnnotation>().FirstOrDefault();
         if (config is not null &&
@@ -112,6 +119,7 @@ public class AzureSlaProvider : ISlaProvider
     /// <inheritdoc />
     public int GetReplicaCount(IResource resource)
     {
+        ArgumentNullException.ThrowIfNull(resource);
         var config = resource.Annotations
             .OfType<AzureConfigAnnotation>()
             .FirstOrDefault();
@@ -120,8 +128,11 @@ public class AzureSlaProvider : ISlaProvider
     }
 
     /// <inheritdoc />
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1303", Justification = "SLA diagnostic tool writes structured console output; localization not applicable.")]
     public async Task<double> GetMonthlyCostAsync(IResource resource, string region)
     {
+        ArgumentNullException.ThrowIfNull(resource);
+
         var config = resource.Annotations
             .OfType<AzureConfigAnnotation>()
             .FirstOrDefault();
@@ -136,7 +147,7 @@ public class AzureSlaProvider : ISlaProvider
         try
         {
             var prices = await _pricesClient.GetPricesByServiceAndSkuAsync(
-                config.ServiceName, config.ArmSkuName, region);
+                config.ServiceName, config.ArmSkuName, region).ConfigureAwait(false);
 
             if (prices.Count > 0)
             {
@@ -160,7 +171,7 @@ public class AzureSlaProvider : ISlaProvider
                     $"{config.ServiceName} ({config.ArmSkuName}) in '{region}'.");
             }
         }
-        catch (Exception ex)
+        catch (HttpRequestException ex)
         {
             Console.WriteLine(
                 $"[SLA WARNING] Failed to query Azure Retail Prices API for '{resource.Name}': {ex.Message}");
