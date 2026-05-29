@@ -1,0 +1,38 @@
+<Project>
+  <!--
+    Aspire.SLA Build-Time Validation Target
+    ========================================
+    Runs SLA & cost compliance validation during build when
+    -p:ValidateSla=true is passed or when building in Release configuration.
+
+    This target does NOT fail the build — it prints SLA diagnostics
+    as warnings/info so developers stay informed without broken workflows.
+  -->
+
+  <PropertyGroup>
+    <SlaTargetsImported>true</SlaTargetsImported>
+  </PropertyGroup>
+
+  <!-- Determine whether SLA validation should run -->
+  <PropertyGroup Condition="'$(ValidateSla)' == 'true' Or '$(Configuration)' == 'Release'">
+    <RunSlaValidation>true</RunSlaValidation>
+  </PropertyGroup>
+
+  <Target Name="ValidateSlaCompliance"
+          AfterTargets="Build"
+          Condition="'$(RunSlaValidation)' == 'true' And '$(IsAspireHost)' == 'true'">
+
+    <Message Importance="high"
+             Text="[SLA Build Target] Triggering architecture compliance validation..." />
+
+    <Exec Command="dotnet run --no-build --project $(MSBuildProjectFullPath) -- --validate-sla"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ContinueOnError="true"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="SlaExitCode" />
+    </Exec>
+
+    <Message Importance="high"
+             Text="[SLA Build Target] Validation complete (exit code: $(SlaExitCode))." />
+  </Target>
+</Project>

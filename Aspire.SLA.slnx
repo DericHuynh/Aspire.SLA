@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/examples/" />
+  <Folder Name="/examples/SLA-Example/">
+    <Project Path="examples/SLA-example/SLA-Example.AppHost/SLA-Example.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Aspire.SLA/Aspire.SLA.csproj" />
+    <Project Path="src/Aspire.SLA.Azure/Aspire.SLA.Azure.csproj" />
+    <Project Path="src/Aspire.SLA.Aws/Aspire.SLA.Aws.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Project Path="tests\Aspire.SLA.Tests\Aspire.SLA.Tests.csproj" />
+</Solution>
